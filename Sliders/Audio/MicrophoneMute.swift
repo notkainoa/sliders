@@ -196,13 +196,15 @@ final class MicrophoneMute {
     /// True when the layer is in force: already set, or written successfully.
     private func apply(_ layer: MicMutePolicy.Layer, to device: MicInputDevice, endpoint: VolumeEndpoint,
                        currentMute: Bool?, currentGain: Float?) -> Bool {
-        let failure = "\(device.uid) \(layer)"
+        let unreadable = "\(device.uid) \(layer) read"
+        let failure = "\(device.uid) \(layer) write"
         guard let next = MicMutePolicy.record(layer, currentMute: currentMute, currentGain: currentGain,
                                               into: state.restore[device.uid])
         else {
-            noteFailure(failure, "Can't read \(device.name) before changing it; leaving that control alone")
+            noteFailure(unreadable, "Can't read \(device.name) before changing it; leaving that control alone")
             return false
         }
+        clearFailure(unreadable)
         if next != state.restore[device.uid] {
             state.restore[device.uid] = next
             // Before the HAL write: a crash between the two must still leave
@@ -292,10 +294,14 @@ extension MicrophoneMute {
     /// (a choice made since wins); otherwise it waits for a retry. Returns
     /// true when `from` is present but refused, so the caller keeps retrying.
     private func restoreDefault(_ devices: [MicInputDevice]) -> Bool {
+        // Read the default's identity straight from the HAL: `devices` can
+        // briefly leave it out (a channel count reading 0 mid-reconnect), and
+        // that must not pass for the user having picked something else.
         guard let swap = state.defaultSwap,
-              let currentID = try? AudioObjectID.readDefaultDevice(.input)
+              let currentID = try? AudioObjectID.readDefaultDevice(.input),
+              let currentUID = try? currentID.readDeviceUID()
         else { return false }
-        guard devices.first(where: { $0.id == currentID })?.uid == swap.to else {
+        guard currentUID == swap.to else {
             state.defaultSwap = nil
             return false
         }
