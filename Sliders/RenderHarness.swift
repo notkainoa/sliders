@@ -7,8 +7,9 @@
     /// seeds a HAL-free engine with demo data for each scene, renders the popover
     /// through ImageRenderer in light and dark, writes PNGs into the sandbox
     /// container's tmp, and exits — no menu bar, no Core Audio, no manual capture.
-    /// The five scenes mirror the product's headline states: idle, drag-to-pair,
-    /// paired multi-output, per-app routing, and the microphone tab.
+    /// The scenes mirror the product's headline states: idle, drag-to-pair,
+    /// paired multi-output, per-app routing, the microphone tab, Bluetooth,
+    /// now playing, and every microphone muted.
     @MainActor
     enum RenderHarness {
         private static let flag = "--render-shots"
@@ -54,6 +55,7 @@
             Scene(id: "06-bluetooth", direction: .output, pairTargeted: false, make: bluetoothEngine,
                   forcedHoverBT: "12-34-56-78-9A-BC"),
             Scene(id: "07-now-playing", direction: .output, pairTargeted: false, make: nowPlayingEngine),
+            Scene(id: "08-microphone-muted", direction: .input, pairTargeted: false, make: mutedMicrophoneEngine),
         ]
 
         static func runAndExit() {
@@ -260,6 +262,16 @@
                 app(706, "com.hnc.Discord", "Discord", playing: false, recording: true),
             ])
             engine.seedForRender(volumes: [:])
+            engine.micMute.seedForRender(isEngaged: false)
+            return engine
+        }
+
+        /// The microphone tab with every input muted: red tile, frozen gain,
+        /// recording apps shown hearing silence.
+        private static func mutedMicrophoneEngine() -> MixerEngine {
+            let engine = microphoneEngine()
+            engine.inputVolume.seedForRender(volume: 0.4, isMuted: true, deviceName: "Shure MV7")
+            engine.micMute.seedForRender(isEngaged: true)
             return engine
         }
 

@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.engine?.fadeOutAndStop()
         if !isUpdateRelaunch {
             Self.engine?.multiOutput.shutdown()
+            // An update relaunch keeps the microphones muted across the gap;
+            // the incoming instance adopts the persisted mute.
+            Self.engine?.micMute.releaseForQuit()
         }
     }
 }
@@ -50,17 +53,18 @@ struct SlidersApp: App {
             // HAL probe — applicationDidFinishLaunching shoots the screenshots and
             // exits before any of that would matter.
             if RenderHarness.isActive {
+                let engine = MixerEngine()
                 let updater = UpdateController()
-                _engine = State(initialValue: MixerEngine())
+                _engine = State(initialValue: engine)
                 _updater = State(initialValue: updater)
-                _statusMenu = State(initialValue: StatusItemMenuController(updater: updater))
+                _statusMenu = State(initialValue: StatusItemMenuController(updater: updater, engine: engine))
                 return
             }
         #endif
         Self.yieldToRunningInstance()
         let engine = MixerEngine()
         let updater = UpdateController()
-        let statusMenu = StatusItemMenuController(updater: updater)
+        let statusMenu = StatusItemMenuController(updater: updater, engine: engine)
         _engine = State(initialValue: engine)
         _updater = State(initialValue: updater)
         _statusMenu = State(initialValue: statusMenu)

@@ -32,6 +32,7 @@ extension MixerEngine {
     }
 
     private func resyncAudioState() {
+        micMute.resync()
         deviceMonitor.refresh()
         inputDeviceMonitor.refresh()
         multiOutput.handleDevicesChanged(present: deviceMonitor.devices)

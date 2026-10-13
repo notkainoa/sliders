@@ -7,11 +7,17 @@ struct ControlSlider: View {
     @Binding var value: Float
     var icon: String
     var iconDimmed: Bool = false
+    /// Overrides the icon's neutral ink, for a state that must stand out.
+    var iconColor: Color?
     var onIconTap: (() -> Void)?
 
     @State private var isDragging = false
     @State private var scrollMonitor: Any?
+    @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
+    /// `.disabled` gates the gesture and the icon button, not the scroll
+    /// monitor below, which writes `value` directly.
+    @Environment(\.isEnabled) private var isEnabled
 
     private let height: CGFloat = 22
 
@@ -55,7 +61,7 @@ struct ControlSlider: View {
                 } label: {
                     Image(systemName: icon)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(iconDimmed ? 0.25 : 0.6))
+                        .foregroundStyle(iconColor ?? Color.black.opacity(iconDimmed ? 0.25 : 0.6))
                         .frame(width: height, height: height)
                         .contentShape(Circle())
                 }
@@ -85,16 +91,23 @@ struct ControlSlider: View {
         // meant for it; installing on hover (not appear) keeps one popover
         // open/close cycle from stacking monitors.
         .onHover { hovering in
-            if hovering, scrollMonitor == nil {
-                scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                    adjust(by: event)
-                    return nil // consumed: don't also scroll the app list
-                }
-            } else if !hovering {
-                removeScrollMonitor()
-            }
+            isHovering = hovering
+            updateScrollMonitor()
         }
+        .onChange(of: isEnabled) { updateScrollMonitor() }
         .onDisappear(perform: removeScrollMonitor)
+    }
+
+    private func updateScrollMonitor() {
+        guard isHovering, isEnabled else {
+            removeScrollMonitor()
+            return
+        }
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            adjust(by: event)
+            return nil // consumed: don't also scroll the app list
+        }
     }
 
     /// Trackpads send many precise pixel deltas per gesture, wheel mice send

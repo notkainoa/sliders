@@ -192,6 +192,9 @@ struct AppRowView: View {
 /// offers no per-app input gain to put a slider on.
 struct RecordingAppRow: View {
     let app: AudioApp
+    /// True while the global mute holds every input: the app is capturing,
+    /// but only silence.
+    var isSilenced = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -202,9 +205,10 @@ struct RecordingAppRow: View {
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(1)
             Spacer()
-            Image(systemName: "mic.fill")
+            Image(systemName: isSilenced ? "mic.slash.fill" : "mic.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(.orange)
+                .foregroundStyle(isSilenced ? .red : .orange)
+                .help(isSilenced ? "Hears silence while microphones are muted" : "Using the microphone")
         }
         .frame(height: 28)
     }

@@ -16,6 +16,7 @@ final class MixerEngine {
     let deviceMonitor = AudioDeviceMonitor()
     let inputVolume = SystemVolumeController(direction: .input)
     let inputDeviceMonitor = AudioDeviceMonitor(direction: .input)
+    let micMute = MicrophoneMute()
     let bluetooth = BluetoothAudioMonitor()
     let multiOutput = MultiOutputController()
     let nowPlaying = NowPlayingMonitor()
@@ -55,6 +56,9 @@ final class MixerEngine {
     #endif
 
     func start() {
+        // First: a mute carried over from the last run must be back in force
+        // before anything else gets a chance to start capturing.
+        micMute.start()
         volumes = store.load()
         processMonitor.start()
         systemVolume.start()

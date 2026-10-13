@@ -57,7 +57,8 @@ struct MixerView: View {
                     )
                 }
             } else {
-                inputVolumeSection
+                MicMuteTile()
+                InputVolumeSection()
                 if engine.isStarted, engine.inputDeviceMonitor.devices.count > 1 {
                     DeviceListSection(monitor: engine.inputDeviceMonitor)
                 }
@@ -125,19 +126,26 @@ struct MixerView: View {
     private var directionPicker: some View {
         HStack(spacing: 2) {
             directionTab(.output, icon: "speaker.wave.2.fill", label: "Output")
-            directionTab(.input, icon: "mic.fill", label: "Microphone")
+            // Red from either tab: the mute is the state worth seeing first.
+            if engine.micMute.isEngaged {
+                directionTab(.input, icon: "mic.slash.fill", label: "Microphone (muted)", tint: .red)
+            } else {
+                directionTab(.input, icon: "mic.fill", label: "Microphone")
+            }
         }
         .padding(2)
         .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func directionTab(_ value: AudioDirection, icon: String, label: String) -> some View {
+    private func directionTab(_ value: AudioDirection, icon: String, label: String,
+                              tint: Color? = nil) -> some View {
         Button {
             direction = value
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(direction == value ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .foregroundStyle(tint.map { AnyShapeStyle($0) }
+                    ?? (direction == value ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)))
                 .frame(maxWidth: .infinity)
                 .frame(height: 24)
                 .background(
@@ -180,40 +188,6 @@ struct MixerView: View {
             .foregroundStyle(.tertiary)
             .textCase(.uppercase)
             .padding(.horizontal, 8)
-    }
-
-    private var inputVolumeSection: some View {
-        let inputVolume = engine.inputVolume
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("Input")
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
-                Text(inputVolume.deviceName)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            // Input gain is absent or read-only on plenty of devices (gain
-            // knob lives in hardware) — a live-looking slider that snaps back
-            // reads as broken, so it dims and freezes instead.
-            ControlSlider(
-                value: Binding(
-                    get: { inputVolume.volume },
-                    set: { inputVolume.setVolume($0) }
-                ),
-                icon: inputVolume.isMuted ? "mic.slash.fill" : "mic.fill",
-                iconDimmed: inputVolume.isMuted,
-                onIconTap: inputVolume.canMute ? { inputVolume.toggleMute() } : nil
-            )
-            .disabled(!inputVolume.canSetVolume)
-            .opacity(inputVolume.canSetVolume ? 1.0 : 0.4)
-            if !inputVolume.canSetVolume {
-                Text("Gain is controlled on the device")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-        }
     }
 
     /// Apps audible right now, paused ones that still have something loaded
@@ -271,8 +245,11 @@ struct MixerView: View {
             emptyState(icon: "mic.slash", message: "Nothing is using the microphone")
         } else {
             VStack(spacing: 2) {
+                // Only claim silence when every device is actually held; an
+                // app may be capturing from one that can't be muted.
+                let silenced = engine.micMute.isEngaged && engine.micMute.unprotectedDeviceNames.isEmpty
                 ForEach(apps) { app in
-                    RecordingAppRow(app: app)
+                    RecordingAppRow(app: app, isSilenced: silenced)
                 }
             }
         }
