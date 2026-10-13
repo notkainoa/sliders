@@ -7,6 +7,8 @@ struct ControlSlider: View {
     @Binding var value: Float
     var icon: String
     var iconDimmed: Bool = false
+    /// Overrides the icon's neutral ink, for a state that must stand out.
+    var iconColor: Color?
     var onIconTap: (() -> Void)?
 
     @State private var isDragging = false
@@ -55,7 +57,7 @@ struct ControlSlider: View {
                 } label: {
                     Image(systemName: icon)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(iconDimmed ? 0.25 : 0.6))
+                        .foregroundStyle(iconColor ?? Color.black.opacity(iconDimmed ? 0.25 : 0.6))
                         .frame(width: height, height: height)
                         .contentShape(Circle())
                 }

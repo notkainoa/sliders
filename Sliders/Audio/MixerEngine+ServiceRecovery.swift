@@ -11,6 +11,7 @@ extension MixerEngine {
         prepareForSleep()
         discardHALBoundState()
 
+        micMute.recoverAfterServiceRestart()
         processMonitor.recoverAfterServiceRestart()
         deviceMonitor.recoverAfterServiceRestart()
         inputDeviceMonitor.recoverAfterServiceRestart()

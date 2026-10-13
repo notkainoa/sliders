@@ -9,22 +9,30 @@ import ServiceManagement
 final class StatusItemMenuController: NSObject {
     private var monitor: Any?
     private let updater: UpdateController
+    private let engine: MixerEngine
+    private let mutedItem: MutedMicStatusItem
 
-    init(updater: UpdateController) {
+    init(updater: UpdateController, engine: MixerEngine) {
         self.updater = updater
+        self.engine = engine
+        mutedItem = MutedMicStatusItem(micMute: engine.micMute)
     }
 
     func install() {
+        mutedItem.install()
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
             guard event.window?.className == "NSStatusBarWindow",
                   event.type == .rightMouseDown || event.modifierFlags.contains(.control)
             else { return event }
             // Local monitors fire on the main thread; hop into the actor
             // without returning the non-Sendable event through it.
-            MainActor.assumeIsolated {
-                self?.showMenu(with: event)
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                // The muted-mic icon is a status item too, with its own menu.
+                guard let self, !self.mutedItem.owns(event.window) else { return false }
+                self.showMenu(with: event)
+                return true
             }
-            return nil
+            return handled ? nil : event
         }
     }
 
@@ -40,6 +48,9 @@ final class StatusItemMenuController: NSObject {
         let header = NSMenuItem(title: "Sliders \(Bundle.main.shortVersion)", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+        menu.addItem(.separator())
+
+        menu.addItem(micMuteItem())
         menu.addItem(.separator())
 
         let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
@@ -82,6 +93,25 @@ final class StatusItemMenuController: NSObject {
         menu.addItem(quit)
 
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    private func micMuteItem() -> NSMenuItem {
+        let micMute = engine.micMute
+        let item = NSMenuItem(
+            title: micMute.isEngaged ? "Unmute All Mics" : "Mute All Mics",
+            action: #selector(toggleMicMute),
+            keyEquivalent: ""
+        )
+        // The symbol shows what the click does, like the title.
+        item.image = NSImage(systemSymbolName: micMute.isEngaged ? "mic" : "mic.slash",
+                             accessibilityDescription: nil)
+        item.target = self
+        item.isEnabled = micMute.isReady
+        return item
+    }
+
+    @objc private func toggleMicMute() {
+        engine.micMute.toggle()
     }
 
     @objc private func toggleLaunchAtLogin() {

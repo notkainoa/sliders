@@ -23,6 +23,7 @@ Download [the latest dmg](https://github.com/notkainoa/sliders/releases/latest/d
 - **Per-app output** — drag one or more devices onto an app to play it through exactly those outputs, each with its own volume; everything else stays on your main output.
 - **Now playing** — every track, video, and browser tab that's playing shows under its app with artwork, play/pause, and scrubbing. Control Center shows one; Sliders shows all of them.
 - **Microphone** — switch the default input, set gain, and see which apps are listening.
+- **Mute all microphones** — one click, from the popover or the right-click menu, mutes every input device for every app, and a red mic joins the menu bar until you unmute. A mute something else takes off is put back within milliseconds; a microphone macOS can't mute is named, never glossed over.
 - **In sync** — system volume follows the volume keys and Control Center; scrolling over any slider adjusts it.
 
 ## Permissions

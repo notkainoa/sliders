@@ -54,6 +54,7 @@
             Scene(id: "06-bluetooth", direction: .output, pairTargeted: false, make: bluetoothEngine,
                   forcedHoverBT: "12-34-56-78-9A-BC"),
             Scene(id: "07-now-playing", direction: .output, pairTargeted: false, make: nowPlayingEngine),
+            Scene(id: "08-microphone-muted", direction: .input, pairTargeted: false, make: mutedMicrophoneEngine),
         ]
 
         static func runAndExit() {
@@ -260,6 +261,16 @@
                 app(706, "com.hnc.Discord", "Discord", playing: false, recording: true),
             ])
             engine.seedForRender(volumes: [:])
+            engine.micMute.seedForRender(isEngaged: false)
+            return engine
+        }
+
+        /// The microphone tab with every input muted: red tile, frozen gain,
+        /// recording apps shown hearing silence.
+        private static func mutedMicrophoneEngine() -> MixerEngine {
+            let engine = microphoneEngine()
+            engine.inputVolume.seedForRender(volume: 0.4, isMuted: true, deviceName: "Shure MV7")
+            engine.micMute.seedForRender(isEngaged: true)
             return engine
         }
 

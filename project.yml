@@ -156,6 +156,7 @@ targets:
       - Sliders/Audio/MultiOutputPolicy.swift
       - Sliders/Audio/VolumeTaper.swift
       - Sliders/Audio/TapMix.swift
+      - Sliders/Audio/MicMutePolicy.swift
       # Property wrappers and AudioDirection; nothing in the tests touches
       # a live HAL.
       - Sliders/Audio/HALProperty.swift
