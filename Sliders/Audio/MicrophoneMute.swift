@@ -143,9 +143,7 @@ final class MicrophoneMute {
             // every hotplug.
             var stuck = false
             if !state.restore.isEmpty || state.defaultSwap != nil {
-                let devices = MicInputDevice.all()
-                release(devices)
-                stuck = devices.contains { state.restore[$0.uid] != nil }
+                stuck = release(MicInputDevice.all())
             }
             // A present device that refused its restore is retried until it
             // takes; an absent one is restored when the device list changes.
@@ -236,8 +234,10 @@ final class MicrophoneMute {
 
     /// Writes back what each present device had before the mute. A device
     /// that refuses keeps its record and is retried on the next reconcile;
-    /// an absent one is restored when it returns.
-    private func release(_ devices: [MicInputDevice]) {
+    /// an absent one is restored when it returns. True when something
+    /// present refused, so the watchdog must keep retrying.
+    @discardableResult
+    private func release(_ devices: [MicInputDevice]) -> Bool {
         for device in devices {
             guard let saved = state.restore[device.uid] else { continue }
             let endpoint = VolumeEndpoint(deviceID: device.id, scope: kAudioDevicePropertyScopeInput)
@@ -252,7 +252,8 @@ final class MicrophoneMute {
                 noteFailure("\(device.uid) restore", "Failed to restore \(device.name)")
             }
         }
-        restoreDefault(devices)
+        let defaultRefused = restoreDefault(devices)
+        return defaultRefused || devices.contains { state.restore[$0.uid] != nil }
     }
 }
 
@@ -273,8 +274,11 @@ extension MicrophoneMute {
         else { return }
         do {
             try AudioObjectID.system.write(kAudioHardwarePropertyDefaultInputDevice, value: target.id)
-            // Swapping again keeps the original `from`: that is the user's.
-            state.defaultSwap = DefaultInputSwap(from: state.defaultSwap?.from ?? current.uid, to: target.uid)
+            // The current default is the latest choice even mid-swap: ours
+            // is protectable, so landing here again means someone picked
+            // another unprotectable device since, and that pick is the one
+            // to give back.
+            state.defaultSwap = DefaultInputSwap(from: current.uid, to: target.uid)
             clearFailure("default swap")
             Self.logger.info("\(current.name) can't be muted; default input moved to \(target.name)")
         } catch {
@@ -283,14 +287,29 @@ extension MicrophoneMute {
         }
     }
 
-    private func restoreDefault(_ devices: [MicInputDevice]) {
-        guard let swap = state.defaultSwap else { return }
-        state.defaultSwap = nil
-        guard let from = devices.first(where: { $0.uid == swap.from }),
-              let currentID = try? AudioObjectID.readDefaultDevice(.input),
-              devices.first(where: { $0.id == currentID })?.uid == swap.to
-        else { return }
-        try? AudioObjectID.system.write(kAudioHardwarePropertyDefaultInputDevice, value: from.id)
+    /// Gives the default input back once `from` is present. The swap record
+    /// is dropped only when that succeeds or the default has moved off `to`
+    /// (a choice made since wins); otherwise it waits for a retry. Returns
+    /// true when `from` is present but refused, so the caller keeps retrying.
+    private func restoreDefault(_ devices: [MicInputDevice]) -> Bool {
+        guard let swap = state.defaultSwap,
+              let currentID = try? AudioObjectID.readDefaultDevice(.input)
+        else { return false }
+        guard devices.first(where: { $0.id == currentID })?.uid == swap.to else {
+            state.defaultSwap = nil
+            return false
+        }
+        // Absent: the device-list listener brings us back when it returns.
+        guard let from = devices.first(where: { $0.uid == swap.from }) else { return false }
+        do {
+            try AudioObjectID.system.write(kAudioHardwarePropertyDefaultInputDevice, value: from.id)
+            state.defaultSwap = nil
+            clearFailure("default restore")
+            return false
+        } catch {
+            noteFailure("default restore", "Failed to give the default input back to \(from.name)")
+            return true
+        }
     }
 
     // MARK: - Watching

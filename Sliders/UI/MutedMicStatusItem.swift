@@ -63,7 +63,13 @@ final class MutedMicStatusItem: NSObject, NSMenuDelegate {
 
     private func makeItem() -> NSStatusItem {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        // Setting the name re-reads the saved position (and visibility) for it.
+        // Setting the name re-reads the saved position and visibility. The
+        // visibility is only ever our own hide from the last unmute, and
+        // restoring it would keep the item hidden while muted, so drop it
+        // and keep just the position.
+        for key in ["Visible", "VisibleCC"] {
+            UserDefaults.standard.removeObject(forKey: "NSStatusItem \(key) \(Self.autosaveName)")
+        }
         item.autosaveName = Self.autosaveName
         item.button?.image = Self.icon
         let menu = NSMenu()
