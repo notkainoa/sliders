@@ -13,6 +13,7 @@ struct ControlSlider: View {
 
     @State private var isDragging = false
     @State private var scrollMonitor: Any?
+    @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
     /// `.disabled` gates the gesture and the icon button, not the scroll
     /// monitor below, which writes `value` directly.
@@ -90,19 +91,23 @@ struct ControlSlider: View {
         // meant for it; installing on hover (not appear) keeps one popover
         // open/close cycle from stacking monitors.
         .onHover { hovering in
-            if hovering, isEnabled, scrollMonitor == nil {
-                scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-                    adjust(by: event)
-                    return nil // consumed: don't also scroll the app list
-                }
-            } else if !hovering {
-                removeScrollMonitor()
-            }
+            isHovering = hovering
+            updateScrollMonitor()
         }
-        .onChange(of: isEnabled) { _, enabled in
-            if !enabled { removeScrollMonitor() }
-        }
+        .onChange(of: isEnabled) { updateScrollMonitor() }
         .onDisappear(perform: removeScrollMonitor)
+    }
+
+    private func updateScrollMonitor() {
+        guard isHovering, isEnabled else {
+            removeScrollMonitor()
+            return
+        }
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            adjust(by: event)
+            return nil // consumed: don't also scroll the app list
+        }
     }
 
     /// Trackpads send many precise pixel deltas per gesture, wheel mice send

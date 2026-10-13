@@ -292,15 +292,17 @@ extension MicrophoneMute {
     /// Gives the default input back once `from` is present. The swap record
     /// is dropped only when that succeeds or the default has moved off `to`
     /// (a choice made since wins); otherwise it waits for a retry. Returns
-    /// true when `from` is present but refused, so the caller keeps retrying.
+    /// true when the HAL couldn't be read or refused the write, so the
+    /// caller keeps retrying.
     private func restoreDefault(_ devices: [MicInputDevice]) -> Bool {
         // Read the default's identity straight from the HAL: `devices` can
         // briefly leave it out (a channel count reading 0 mid-reconnect), and
         // that must not pass for the user having picked something else.
-        guard let swap = state.defaultSwap,
-              let currentID = try? AudioObjectID.readDefaultDevice(.input),
+        guard let swap = state.defaultSwap else { return false }
+        // Unreadable is indeterminate: keep the record and retry.
+        guard let currentID = try? AudioObjectID.readDefaultDevice(.input),
               let currentUID = try? currentID.readDeviceUID()
-        else { return false }
+        else { return true }
         guard currentUID == swap.to else {
             state.defaultSwap = nil
             return false
