@@ -14,6 +14,9 @@ struct ControlSlider: View {
     @State private var isDragging = false
     @State private var scrollMonitor: Any?
     @Environment(\.colorScheme) private var colorScheme
+    /// `.disabled` gates the gesture and the icon button, not the scroll
+    /// monitor below, which writes `value` directly.
+    @Environment(\.isEnabled) private var isEnabled
 
     private let height: CGFloat = 22
 
@@ -87,7 +90,7 @@ struct ControlSlider: View {
         // meant for it; installing on hover (not appear) keeps one popover
         // open/close cycle from stacking monitors.
         .onHover { hovering in
-            if hovering, scrollMonitor == nil {
+            if hovering, isEnabled, scrollMonitor == nil {
                 scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
                     adjust(by: event)
                     return nil // consumed: don't also scroll the app list
@@ -95,6 +98,9 @@ struct ControlSlider: View {
             } else if !hovering {
                 removeScrollMonitor()
             }
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled { removeScrollMonitor() }
         }
         .onDisappear(perform: removeScrollMonitor)
     }

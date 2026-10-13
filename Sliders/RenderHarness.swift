@@ -7,8 +7,9 @@
     /// seeds a HAL-free engine with demo data for each scene, renders the popover
     /// through ImageRenderer in light and dark, writes PNGs into the sandbox
     /// container's tmp, and exits — no menu bar, no Core Audio, no manual capture.
-    /// The five scenes mirror the product's headline states: idle, drag-to-pair,
-    /// paired multi-output, per-app routing, and the microphone tab.
+    /// The scenes mirror the product's headline states: idle, drag-to-pair,
+    /// paired multi-output, per-app routing, the microphone tab, Bluetooth,
+    /// now playing, and every microphone muted.
     @MainActor
     enum RenderHarness {
         private static let flag = "--render-shots"

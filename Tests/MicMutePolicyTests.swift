@@ -47,7 +47,18 @@ struct MicMutePolicyTests {
     @Test("a device that was already muted stays muted on release")
     func preservesUserMute() {
         let state = MicMutePolicy.record(.mute, currentMute: true, currentGain: nil, into: nil)
-        #expect(state.wasMuted == true)
+        #expect(state?.wasMuted == true)
+    }
+
+    /// Guessing would let release unmute a mic the user had muted, or leave
+    /// one at zero gain with nothing to restore.
+    @Test("an unreadable original blocks the layer")
+    func unreadableOriginal() {
+        #expect(MicMutePolicy.record(.mute, currentMute: nil, currentGain: 0.7, into: nil) == nil)
+        #expect(MicMutePolicy.record(.zeroGain, currentMute: false, currentGain: nil, into: nil) == nil)
+        let held = MicRestoreState(wasMuted: true, gain: 0.4)
+        #expect(MicMutePolicy.record(.mute, currentMute: nil, currentGain: nil, into: held) == held)
+        #expect(MicMutePolicy.record(.zeroGain, currentMute: nil, currentGain: nil, into: held) == held)
     }
 
     @Test("moves the default off an unmutable device, built-in first")

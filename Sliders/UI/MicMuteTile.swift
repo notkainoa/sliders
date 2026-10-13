@@ -36,7 +36,15 @@ struct MicMuteTile: View {
         .opacity(micMute.isReady ? 1 : 0.5)
         .onHover { isHovering = $0 }
         .help(muted ? "Unmute every microphone" : "Mute every microphone for every app")
-        .accessibilityLabel(muted ? "Unmute microphones" : "Mute all microphones")
+        .accessibilityLabel(accessibilityLabel(muted: muted, unprotected: micMute.unprotectedDeviceNames))
+    }
+
+    /// Replaces the visible title and subtitle for VoiceOver, so it must
+    /// carry the can't-be-muted warning too.
+    private func accessibilityLabel(muted: Bool, unprotected: [String]) -> String {
+        guard muted else { return "Mute all microphones" }
+        guard !unprotected.isEmpty else { return "Unmute microphones" }
+        return "Unmute microphones. \(unprotected.joined(separator: ", ")) can't be muted"
     }
 
     @ViewBuilder

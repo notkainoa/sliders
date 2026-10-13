@@ -54,9 +54,11 @@ final class MutedMicStatusItem: NSObject, NSMenuDelegate {
         let item = item ?? makeItem()
         self.item = item
         item.isVisible = true
-        item.button?.toolTip = micMute.unprotectedDeviceNames.isEmpty
+        let status = micMute.unprotectedDeviceNames.isEmpty
             ? "Microphones muted"
             : "Microphones muted, except \(micMute.unprotectedDeviceNames.joined(separator: ", "))"
+        item.button?.toolTip = status
+        item.button?.setAccessibilityLabel(status)
     }
 
     private func makeItem() -> NSStatusItem {
@@ -64,7 +66,6 @@ final class MutedMicStatusItem: NSObject, NSMenuDelegate {
         // Setting the name re-reads the saved position (and visibility) for it.
         item.autosaveName = Self.autosaveName
         item.button?.image = Self.icon
-        item.button?.setAccessibilityLabel("Microphones muted")
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
@@ -84,6 +85,9 @@ final class MutedMicStatusItem: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        // The status bar window is pinned dark; without this the menu
+        // inherits that and ignores the system theme.
+        menu.appearance = NSApp.effectiveAppearance
 
         let header = NSMenuItem(title: "All Mics Muted", action: nil, keyEquivalent: "")
         header.isEnabled = false

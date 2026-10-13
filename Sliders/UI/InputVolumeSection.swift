@@ -10,7 +10,10 @@ struct InputVolumeSection: View {
         // The global mute owns every input while engaged; gain and the
         // per-device mute would only be overridden, so they freeze.
         let globallyMuted = engine.micMute.isEngaged
-        let editable = inputVolume.canSetVolume && !globallyMuted
+        // Before start() the controller has no device behind it yet, and
+        // every write would fail.
+        let live = engine.isStarted && !globallyMuted
+        let editable = live && inputVolume.canSetVolume
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text("Input")
@@ -32,7 +35,7 @@ struct InputVolumeSection: View {
                 icon: inputVolume.isMuted || globallyMuted ? "mic.slash.fill" : "mic.fill",
                 iconDimmed: inputVolume.isMuted,
                 iconColor: globallyMuted ? .red : nil,
-                onIconTap: inputVolume.canMute && !globallyMuted ? { inputVolume.toggleMute() } : nil
+                onIconTap: live && inputVolume.canMute ? { inputVolume.toggleMute() } : nil
             )
             .disabled(!editable)
             .opacity(editable ? 1.0 : 0.5)

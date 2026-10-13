@@ -34,6 +34,8 @@ final class MicrophoneMute {
     @ObservationIgnored private var savedState = MicMuteState()
     /// Devices whose mute came off while engaged; they get the gain lock too.
     @ObservationIgnored private var tampered: Set<String> = []
+    /// Writes currently being refused, already logged once.
+    @ObservationIgnored private var failing: Set<String> = []
     @ObservationIgnored private var systemListeners: [HALListener] = []
     @ObservationIgnored private var deviceListeners: [AudioObjectID: [HALListener]] = [:]
     @ObservationIgnored private var watchdog: Task<Void, Never>?
@@ -77,6 +79,9 @@ final class MicrophoneMute {
     /// silent with nothing on screen to explain it. The engaged flag stays
     /// persisted: the next launch mutes again, the red icon says so.
     func releaseForQuit() {
+        // Not ready means the launch probe hasn't heard back from coreaudiod:
+        // a HAL call now could hang the quit. Whatever a previous run left
+        // muted stays muted (fail closed), and the next launch picks it up.
         guard isReady else { return }
         stopWatchdog()
         systemListeners.removeAll()
@@ -119,26 +124,38 @@ final class MicrophoneMute {
     private func reconcile() {
         if state.isEngaged {
             let devices = MicInputDevice.all()
-            let open = Set(devices.filter { !hold($0) }.map(\.uid))
+            var silenced = Set(devices.filter { hold($0) }.map(\.id))
+            // An aggregate with no working control of its own is silent
+            // through its members, and only while every one of them is.
+            for device in devices where !silenced.contains(device.id) && !device.inputMembers.isEmpty
+                && device.inputMembers.allSatisfy(silenced.contains) {
+                silenced.insert(device.id)
+            }
+            let open = Set(devices.filter { !silenced.contains($0.id) }.map(\.uid))
             swapDefaultIfUnprotected(devices, open: open)
             publishUnprotected(devices.filter { open.contains($0.uid) }.map(\.name))
             watch(devices)
             startWatchdog()
         } else {
-            stopWatchdog()
             deviceListeners.removeAll()
             publishUnprotected([])
             // Nothing pending (the usual case): skip enumerating devices on
             // every hotplug.
+            var stuck = false
             if !state.restore.isEmpty || state.defaultSwap != nil {
-                release(MicInputDevice.all())
+                let devices = MicInputDevice.all()
+                release(devices)
+                stuck = devices.contains { state.restore[$0.uid] != nil }
             }
+            // A present device that refused its restore is retried until it
+            // takes; an absent one is restored when the device list changes.
+            if stuck { startWatchdog() } else { stopWatchdog() }
         }
         persist()
     }
 
-    /// Applies the device's locks; false when none of them took, so the
-    /// device is still live and must be reported as such.
+    /// Applies the device's own locks; false when none of them is in force,
+    /// so the device is live unless its members cover it.
     private func hold(_ device: MicInputDevice) -> Bool {
         let endpoint = VolumeEndpoint(deviceID: device.id, scope: kAudioDevicePropertyScopeInput)
         let recorded = state.restore[device.uid]
@@ -167,36 +184,54 @@ final class MicrophoneMute {
             where apply(layer, to: device, endpoint: endpoint, currentMute: currentMute, currentGain: currentGain) {
             silenced = true
         }
-        return silenced || device.isCoveredBySubDevices
+        return silenced
     }
 
     private func escalate(_ device: MicInputDevice, reason: String) {
         guard tampered.insert(device.uid).inserted else { return }
-        Self.logger.warning("\(device.name) \(reason); holding it with gain at zero too")
+        Self.logger.warning("""
+        \(device.name) \(reason); \(device.controls.canZeroGain
+            ? "holding it with gain at zero too" : "it has no gain control to fall back on")
+        """)
     }
 
     /// True when the layer is in force: already set, or written successfully.
     private func apply(_ layer: MicMutePolicy.Layer, to device: MicInputDevice, endpoint: VolumeEndpoint,
                        currentMute: Bool?, currentGain: Float?) -> Bool {
-        let next = MicMutePolicy.record(layer, currentMute: currentMute, currentGain: currentGain,
-                                        into: state.restore[device.uid])
+        let failure = "\(device.uid) \(layer)"
+        guard let next = MicMutePolicy.record(layer, currentMute: currentMute, currentGain: currentGain,
+                                              into: state.restore[device.uid])
+        else {
+            noteFailure(failure, "Can't read \(device.name) before changing it; leaving that control alone")
+            return false
+        }
         if next != state.restore[device.uid] {
             state.restore[device.uid] = next
             // Before the HAL write: a crash between the two must still leave
             // the original value on disk to restore.
             persist()
         }
-        switch layer {
-        case .mute:
-            if currentMute == true { return true }
-            if endpoint.writeMute(true) != nil { return true }
-            Self.logger.error("Failed to mute \(device.name)")
-        case .zeroGain:
-            if currentGain == 0 { return true }
-            if endpoint.writeVolume(0) != nil { return true }
-            Self.logger.error("Failed to zero gain on \(device.name)")
+        let inForce = switch layer {
+        case .mute: currentMute == true || endpoint.writeMute(true) != nil
+        case .zeroGain: currentGain == 0 || endpoint.writeVolume(0) != nil
         }
-        return false
+        if inForce {
+            clearFailure(failure)
+        } else {
+            noteFailure(failure, "Failed to \(layer == .mute ? "mute" : "zero gain on") \(device.name)")
+        }
+        return inForce
+    }
+
+    /// The watchdog retries a refused write every couple of seconds for as
+    /// long as it is refused; one log line per failure, not one per retry.
+    private func noteFailure(_ key: String, _ message: String) {
+        guard failing.insert(key).inserted else { return }
+        Self.logger.error("\(message)")
+    }
+
+    private func clearFailure(_ key: String) {
+        failing.remove(key)
     }
 
     /// Writes back what each present device had before the mute. A device
@@ -212,15 +247,18 @@ final class MicrophoneMute {
             let muteRestored = saved.wasMuted.map { endpoint.writeMute($0) != nil } ?? true
             if gainRestored, muteRestored {
                 state.restore[device.uid] = nil
+                clearFailure("\(device.uid) restore")
             } else {
-                Self.logger.error("Failed to restore \(device.name)")
+                noteFailure("\(device.uid) restore", "Failed to restore \(device.name)")
             }
         }
         restoreDefault(devices)
     }
+}
 
-    // MARK: - Default input
+// MARK: - Default input
 
+extension MicrophoneMute {
     /// `open` holds the devices still live after hold(): no controls, or
     /// controls that refused every write.
     private func swapDefaultIfUnprotected(_ devices: [MicInputDevice], open: Set<String>) {
@@ -237,9 +275,11 @@ final class MicrophoneMute {
             try AudioObjectID.system.write(kAudioHardwarePropertyDefaultInputDevice, value: target.id)
             // Swapping again keeps the original `from`: that is the user's.
             state.defaultSwap = DefaultInputSwap(from: state.defaultSwap?.from ?? current.uid, to: target.uid)
+            clearFailure("default swap")
             Self.logger.info("\(current.name) can't be muted; default input moved to \(target.name)")
         } catch {
-            Self.logger.error("Failed to move default input off \(current.name): \(error.localizedDescription)")
+            noteFailure("default swap",
+                        "Failed to move default input off \(current.name): \(error.localizedDescription)")
         }
     }
 
@@ -293,7 +333,8 @@ final class MicrophoneMute {
                 } catch {
                     return
                 }
-                guard let self, state.isEngaged else { return }
+                // reconcile() stops the watchdog once nothing needs it.
+                guard let self else { return }
                 reconcile()
             }
         }
@@ -314,57 +355,5 @@ final class MicrophoneMute {
         guard state != savedState else { return }
         store.save(state)
         savedState = state
-    }
-}
-
-/// One input device as the global mute sees it.
-private struct MicInputDevice {
-    let id: AudioObjectID
-    let uid: String
-    let name: String
-    let controls: MicControls
-    let isBuiltIn: Bool
-    /// An aggregate whose every input sub-device is itself held muted —
-    /// silent through its members even with no controls of its own.
-    let isCoveredBySubDevices: Bool
-
-    static func all() -> [MicInputDevice] {
-        guard let ids = try? AudioObjectID.system.readArray(kAudioHardwarePropertyDevices, of: AudioDeviceID.self)
-        else { return [] }
-        return ids.compactMap(MicInputDevice.init(id:))
-    }
-
-    init?(id: AudioObjectID) {
-        let scope = kAudioDevicePropertyScopeInput
-        // Sliders' own aggregates carry tapped app output on their input side,
-        // not a microphone; muting them would silence per-app playback.
-        guard id.channelCount(scope: scope) > 0,
-              let device = AudioDevice(id: id),
-              !device.isSlidersPlumbing
-        else { return nil }
-        var covered = false
-        if device.transport == kAudioDeviceTransportTypeAggregate {
-            let members = (try? id.readArray(kAudioAggregateDevicePropertyActiveSubDeviceList,
-                                             of: AudioObjectID.self)) ?? []
-            let inputs = members.filter { $0.channelCount(scope: scope) > 0 }
-            // Tap-only aggregates (another app's per-app audio) have no
-            // microphone in them.
-            guard !inputs.isEmpty else { return nil }
-            covered = inputs.allSatisfy { Self.controls(of: $0).isProtectable }
-        }
-        self.id = id
-        uid = device.uid
-        name = device.name
-        controls = Self.controls(of: id)
-        isBuiltIn = device.transport == kAudioDeviceTransportTypeBuiltIn
-        isCoveredBySubDevices = covered
-    }
-
-    private static func controls(of id: AudioObjectID) -> MicControls {
-        let scope = kAudioDevicePropertyScopeInput
-        return MicControls(
-            canMute: id.isSettable(kAudioDevicePropertyMute, scope: scope),
-            canZeroGain: id.isSettable(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, scope: scope)
-        )
     }
 }

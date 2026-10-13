@@ -54,15 +54,19 @@ enum MicMutePolicy {
 
     /// Records a device's pre-mute value for a layer. Never overwrites: once
     /// muted, the device reads back our own state, and recording that would
-    /// make release a no-op.
+    /// make release a no-op. Nil when the value has never been read: the
+    /// layer must then not be applied, since release could not undo it
+    /// exactly.
     static func record(_ layer: Layer, currentMute: Bool?, currentGain: Float?,
-                       into existing: MicRestoreState?) -> MicRestoreState {
+                       into existing: MicRestoreState?) -> MicRestoreState? {
         var state = existing ?? MicRestoreState()
         switch layer {
         case .mute:
-            if state.wasMuted == nil { state.wasMuted = currentMute ?? false }
+            if state.wasMuted == nil { state.wasMuted = currentMute }
+            if state.wasMuted == nil { return nil }
         case .zeroGain:
-            if state.gain == nil, let currentGain { state.gain = currentGain }
+            if state.gain == nil { state.gain = currentGain }
+            if state.gain == nil { return nil }
         }
         return state
     }
